@@ -131,6 +131,24 @@ body::before{
 .back:focus-visible{outline:2px solid var(--g1);outline-offset:2px}
 .back.is-hidden{visibility:hidden}
 
+/* ---------- formulário de dados do lead ---------- */
+.lead-form{margin-top:30px;display:grid;gap:16px;text-align:left}
+.field label{display:block;font:600 11px/1 var(--f-body);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:9px}
+.field input{
+  width:100%;padding:17px 19px;border-radius:var(--radius);
+  background:var(--surface);border:1px solid var(--line);
+  color:var(--text);font:500 16px/1.4 var(--f-body);
+  transition:border-color .2s,background .2s,box-shadow .2s;
+}
+.field input::placeholder{color:var(--dim)}
+.field input:hover{border-color:rgba(78,243,95,.45)}
+.field input:focus{outline:none;border-color:var(--g1);background:rgba(78,243,95,.05);box-shadow:0 0 0 1px rgba(78,243,95,.35)}
+.field .err{display:none;margin-top:8px;font-size:12.5px;color:#ff9d86}
+.field.has-error input{border-color:rgba(255,120,90,.75);box-shadow:0 0 0 1px rgba(255,120,90,.35)}
+.field.has-error .err{display:block}
+.roles{display:grid;gap:10px}
+.lead-cta{margin-top:6px;width:100%}
+
 /* ---------- transições entre telas ---------- */
 .enter-fwd{animation:inUp .32s cubic-bezier(.2,.7,.3,1) both}
 .leave-fwd{animation:outUp .2s ease both}
@@ -143,6 +161,7 @@ body::before{
 
 /* ---------- tela final ---------- */
 .f-title{margin-top:22px;font:700 clamp(28px,5vw,44px)/1.14 var(--f-display);letter-spacing:-.01em}
+.f-title:focus{outline:none}
 .f-sub{margin:18px auto 0;max-width:62ch;font-size:15.5px;line-height:1.7;color:var(--muted)}
 
 .seals{margin-top:26px;display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
@@ -271,6 +290,29 @@ const QUIZ_CONFIG = {
     }
   ],
 
+  lead: {
+    title: "Último passo pra liberar seu diagnóstico",
+    subtitle: "Usamos esses dados só pra preparar o Raio-X da sua imobiliária e confirmar a sessão pelo WhatsApp. Nada de spam.",
+    cta: "Liberar meu diagnóstico",
+    fields: {
+      nome:        { label: "Nome",                placeholder: "Seu nome completo" },
+      telefone:    { label: "Telefone (WhatsApp)", placeholder: "(11) 98765-4321" },
+      imobiliaria: { label: "Nome da imobiliária", placeholder: "Como sua imobiliária se chama" }
+    },
+    cargoLabel: "Cargo",
+    roles: [
+      { label: "Dono de imobiliária", tag: "dono" },
+      { label: "Gestor comercial",    tag: "gestor-comercial" },
+      { label: "Corretor",            tag: "corretor" }
+    ],
+    errors: {
+      nome:        "Digite seu nome.",
+      telefone:    "Digite um WhatsApp válido com DDD.",
+      imobiliaria: "Digite o nome da imobiliária.",
+      cargo:       "Selecione seu cargo."
+    }
+  },
+
   final: {
     badge: "Perfil verificado · Vaga liberada para você",
     title: "Sua imobiliária foi selecionada para o",
@@ -291,14 +333,18 @@ const QUIZ_CONFIG = {
    MOTOR DO QUIZ
    ============================================================ */
 (function(){
-  const cfg      = QUIZ_CONFIG;
-  const total    = cfg.steps.length;
+  const cfg          = QUIZ_CONFIG;
+  const total        = cfg.steps.length;
+  const totalScreens = total + 1; /* perguntas + tela de dados */
   const screenEl = document.getElementById("screen");
   const fillEl   = document.getElementById("progressFill");
-  const state    = { index: 0, answers: {} };
+  const state    = { index: 0, answers: {}, lead: {} };
   let   busy     = false;
 
   const pad   = n => String(n).padStart(2, "0");
+  const esc   = s => String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
   const track = (event, data) => {
     window.dataLayer = window.dataLayer || [];
     window.dataLayer.push(Object.assign({ event: event }, data || {}));
@@ -309,6 +355,14 @@ const QUIZ_CONFIG = {
   function answersQuery(sep){
     return cfg.steps
       .map(s => s.id + (sep === "url" ? "=" : ":") + (state.answers[s.id] || ""))
+      .join(sep === "url" ? "&" : "|");
+  }
+
+  function leadQuery(sep){
+    return ["nome", "telefone", "imobiliaria", "cargo"]
+      .map(k => sep === "url"
+        ? k + "=" + encodeURIComponent(state.lead[k] || "")
+        : k + ":" + (state.lead[k] || ""))
       .join(sep === "url" ? "&" : "|");
   }
 
@@ -325,14 +379,60 @@ const QUIZ_CONFIG = {
 
     return (
       '<span class="pill"><span class="dot"></span>' + cfg.badge + '</span>' +
-      '<div class="counter" aria-label="Etapa ' + (i + 1) + ' de ' + total + '">' +
+      '<div class="counter" aria-label="Etapa ' + (i + 1) + ' de ' + totalScreens + '">' +
         '<span class="now grad-text">' + pad(i + 1) + '</span>' +
-        '<span class="total"> / ' + pad(total) + '</span>' +
+        '<span class="total"> / ' + pad(totalScreens) + '</span>' +
       '</div>' +
       '<h1 class="q-title" id="qTitle" tabindex="-1">' + step.title + '</h1>' +
       (step.subtitle ? '<p class="q-sub">' + step.subtitle + '</p>' : '') +
       '<div class="options" role="radiogroup" aria-labelledby="qTitle">' + options + '</div>' +
       '<button type="button" class="back' + (i === 0 ? ' is-hidden' : '') + '">&larr; Voltar</button>'
+    );
+  }
+
+  function leadHTML(){
+    const l = cfg.lead;
+    const textField = function(key, type, autocomplete, inputmode){
+      const f = l.fields[key];
+      return (
+        '<div class="field" data-field="' + key + '">' +
+          '<label for="lead-' + key + '">' + f.label + '</label>' +
+          '<input id="lead-' + key + '" name="' + key + '" type="' + type + '"' +
+            ' placeholder="' + esc(f.placeholder) + '" value="' + esc(state.lead[key]) + '"' +
+            ' autocomplete="' + autocomplete + '"' + (inputmode ? ' inputmode="' + inputmode + '"' : '') + ' />' +
+          '<span class="err">' + l.errors[key] + '</span>' +
+        '</div>'
+      );
+    };
+
+    const roles = l.roles.map(o => (
+      '<button type="button" class="opt" role="radio" aria-checked="' +
+      (state.lead.cargo === o.tag) + '" data-tag="' + o.tag + '">' +
+        '<span class="radio" aria-hidden="true"></span>' +
+        '<span>' + o.label + '</span>' +
+      '</button>'
+    )).join("");
+
+    return (
+      '<span class="pill"><span class="dot"></span>' + cfg.badge + '</span>' +
+      '<div class="counter" aria-label="Etapa ' + totalScreens + ' de ' + totalScreens + '">' +
+        '<span class="now grad-text">' + pad(totalScreens) + '</span>' +
+        '<span class="total"> / ' + pad(totalScreens) + '</span>' +
+      '</div>' +
+      '<h1 class="q-title" id="qTitle" tabindex="-1">' + l.title + '</h1>' +
+      '<p class="q-sub">' + l.subtitle + '</p>' +
+      '<form class="lead-form" id="leadForm" novalidate>' +
+        textField("nome", "text", "name") +
+        textField("telefone", "tel", "tel", "tel") +
+        textField("imobiliaria", "text", "organization") +
+        '<div class="field" data-field="cargo">' +
+          '<label id="cargoLabel">' + l.cargoLabel + '</label>' +
+          '<div class="roles" role="radiogroup" aria-labelledby="cargoLabel">' + roles + '</div>' +
+          '<span class="err">' + l.errors.cargo + '</span>' +
+        '</div>' +
+        '<button type="submit" class="cta lead-cta">' + l.cta + '</button>' +
+      '</form>' +
+      '<button type="button" class="back">&larr; Voltar</button>'
     );
   }
 
@@ -374,7 +474,8 @@ const QUIZ_CONFIG = {
       u.searchParams.set("embed_domain", location.hostname || "localhost");
       u.searchParams.set("utm_source", "quiz_selecao");
       u.searchParams.set("utm_medium", "site");
-      u.searchParams.set("utm_content", answersQuery("pipe"));
+      u.searchParams.set("utm_content", answersQuery("pipe") + "|" + leadQuery("pipe"));
+      if (state.lead.nome) u.searchParams.set("name", state.lead.nome);
       return u.toString();
     } catch (e) { return cfg.scheduling.calendlyUrl; }
   }
@@ -397,8 +498,97 @@ const QUIZ_CONFIG = {
   function renderQuestion(){
     screenEl.className = "screen";
     screenEl.innerHTML = questionHTML(state.index);
-    setProgress((state.index / total) * 100);
+    setProgress((state.index / totalScreens) * 100);
     bindQuestion();
+  }
+
+  function renderLead(){
+    screenEl.className = "screen";
+    screenEl.innerHTML = leadHTML();
+    setProgress((total / totalScreens) * 100);
+    bindLead();
+  }
+
+  function bindLead(){
+    const form  = document.getElementById("leadForm");
+    const tel   = document.getElementById("lead-telefone");
+    const roles = Array.prototype.slice.call(form.querySelectorAll(".opt"));
+    const back  = screenEl.querySelector(".back");
+
+    const clearError = function(key){
+      const field = form.querySelector('[data-field="' + key + '"]');
+      if (field) field.classList.remove("has-error");
+    };
+
+    /* máscara de telefone BR: (11) 98765-4321 */
+    tel.addEventListener("input", function(){
+      const d = this.value.replace(/\D/g, "").slice(0, 11);
+      let v = d;
+      if (d.length > 2) v = "(" + d.slice(0, 2) + ") " + d.slice(2);
+      if (d.length > 6) {
+        const cut = d.length > 10 ? 7 : 6;
+        v = "(" + d.slice(0, 2) + ") " + d.slice(2, cut) + "-" + d.slice(cut);
+      }
+      this.value = v;
+    });
+
+    ["nome", "telefone", "imobiliaria"].forEach(function(key){
+      document.getElementById("lead-" + key).addEventListener("input", function(){ clearError(key); });
+    });
+
+    roles.forEach(function(btn){
+      btn.addEventListener("click", function(){
+        roles.forEach(function(b){ b.setAttribute("aria-checked", "false"); });
+        btn.setAttribute("aria-checked", "true");
+        btn.classList.add("is-picked");
+        state.lead.cargo = btn.dataset.tag;
+        clearError("cargo");
+      });
+    });
+
+    back.addEventListener("click", function(){
+      if (busy) return;
+      busy = true;
+      state.index = total - 1;
+      swap(renderQuestion, "back");
+    });
+
+    form.addEventListener("submit", function(e){
+      e.preventDefault();
+      state.lead.nome        = document.getElementById("lead-nome").value.trim();
+      state.lead.telefone    = tel.value.trim();
+      state.lead.imobiliaria = document.getElementById("lead-imobiliaria").value.trim();
+
+      const digits = state.lead.telefone.replace(/\D/g, "");
+      const errors = {
+        nome:        state.lead.nome.length < 2,
+        telefone:    digits.length < 10,
+        imobiliaria: state.lead.imobiliaria.length < 2,
+        cargo:       !state.lead.cargo
+      };
+
+      let firstError = null;
+      Object.keys(errors).forEach(function(key){
+        const field = form.querySelector('[data-field="' + key + '"]');
+        field.classList.toggle("has-error", errors[key]);
+        if (errors[key] && !firstError) firstError = field;
+      });
+      if (firstError) {
+        const input = firstError.querySelector("input");
+        if (input) input.focus();
+        return;
+      }
+
+      track("quiz_lead", Object.assign({}, state.lead));
+      const redirect = cfg.scheduling.redirectUrl;
+      if (redirect) {
+        const sep = redirect.indexOf("?") === -1 ? "?" : "&";
+        location.href = redirect + sep + answersQuery("url") + "&" + leadQuery("url");
+        return;
+      }
+      busy = true;
+      swap(renderFinal, "fwd");
+    });
   }
 
   function renderFinal(){
@@ -459,15 +649,8 @@ const QUIZ_CONFIG = {
   }
 
   function complete(){
-    setProgress(100);
     track("quiz_complete", { answers: Object.assign({}, state.answers) });
-    const redirect = cfg.scheduling.redirectUrl;
-    if (redirect) {
-      const sep = redirect.indexOf("?") === -1 ? "?" : "&";
-      location.href = redirect + sep + answersQuery("url");
-      return;
-    }
-    swap(renderFinal, "fwd");
+    swap(renderLead, "fwd");
   }
 
   /* ---------- start ---------- */
