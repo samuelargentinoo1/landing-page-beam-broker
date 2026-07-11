@@ -134,7 +134,7 @@ export default async function handler(req, res) {
 
   /* 3) negócio no Inbound > Novo Lead */
   const dealPayload = Object.assign({
-    name: "Raio-X — " + (imobiliaria || nome),
+    name: nome,
     stage: { id: STAGE_ID },
     status: "OPEN",
     contacts: [{ id: contactId }],
