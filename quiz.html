@@ -580,6 +580,7 @@ const QUIZ_CONFIG = {
       }
 
       track("quiz_lead", Object.assign({}, state.lead));
+      sendLeadToCRM();
       const redirect = cfg.scheduling.redirectUrl;
       if (redirect) {
         const sep = redirect.indexOf("?") === -1 ? "?" : "&";
@@ -646,6 +647,25 @@ const QUIZ_CONFIG = {
       state.index--;
       swap(renderQuestion, "back");
     });
+  }
+
+  function sendLeadToCRM(){
+    try {
+      const payload = JSON.stringify({
+        nome:        state.lead.nome,
+        telefone:    state.lead.telefone,
+        imobiliaria: state.lead.imobiliaria,
+        cargo:       state.lead.cargo,
+        respostas:   Object.assign({}, state.answers)
+      });
+      /* keepalive garante o envio mesmo se a pessoa fechar a aba em seguida */
+      fetch("/api/lead", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+        keepalive: true
+      }).catch(function(){ /* não bloqueia a experiência do lead */ });
+    } catch (e) { /* silencioso: o fluxo do quiz segue normal */ }
   }
 
   function complete(){
