@@ -1,24 +1,72 @@
 /**
- * Recebe os dados do quiz e cria o lead no Moskit CRM.
+ * Recebe os dados do quiz da landing e cria o lead no Moskit CRM:
+ *   1. Empresa (a imobiliária)
+ *   2. Contato (nome + WhatsApp + cargo), vinculado à empresa
+ *   3. Negócio no Funil Inbound > Novo Lead, com as respostas do quiz
+ *      em campos personalizados (visíveis só nesse funil)
  *
- * Variáveis de ambiente (configurar na Vercel):
- *   MOSKIT_API_KEY      — obrigatória. Gerada no Moskit em Apps > API pública.
- *   MOSKIT_STAGE_ID     — opcional. Id da fase do funil onde criar o negócio.
- *                         Sem ela, apenas o contato é criado.
- *   MOSKIT_RESPONSIBLE  — opcional. Id do usuário responsável pelo lead.
+ * Única variável de ambiente necessária (configurada na Vercel):
+ *   MOSKIT_API_KEY
  */
 
 const MOSKIT_API = "https://api.moskitcrm.com/v2";
 
-const CARGO_LABELS = {
-  "dono": "Dono de imobiliária",
-  "gestor-comercial": "Gestor comercial",
-  "corretor": "Corretor"
+/* ids validados na conta Moskit da Beam (jul/2026) */
+const RESPONSIBLE_ID = 159056;  // Ana Julia <ana@beam360.com.br>
+const STAGE_ID       = 503634;  // Funil de Vendas - Inbound > Novo Lead
+const ORIGEM_LABEL   = "Landing Page Raio-X (quiz)";
+
+const CF = {
+  cargoContato: "CF_075MJBSjC9EgeMaz", // contato: Cargo ou Função
+  objetivo:     "CF_vG0mR0ikCzdNjqbV", // negócio: Objetivo comercial
+  atuacao:      "CF_2ojMxLiPCoRbgMOE", // negócio: Atuação da imobiliária
+  corretores:   "CF_K7Rm8QiRCVzXnDbN", // negócio: Nº de corretores
+  vgv:          "CF_gvGm3Bi0CGnrkM45", // negócio: VGV anual
+  origem:       "CF_3LvDvEi4CLR43m6a"  // negócio: Origem do lead
 };
+
+/* tags do quiz -> rótulos legíveis no CRM */
+const LABELS = {
+  cargo: {
+    "dono":             "Dono de imobiliária",
+    "gestor-comercial": "Gestor comercial",
+    "corretor":         "Corretor"
+  },
+  objetivo: {
+    "converter-mais":    "Vender mais com os leads que já chegam",
+    "menos-dependencia": "Depender menos de portais e indicações",
+    "estruturar-time":   "Estruturar ou escalar o time de corretores",
+    "previsibilidade":   "Ter previsibilidade de vendas todo mês"
+  },
+  atuacao: {
+    "locacao":      "Locação e administração de imóveis",
+    "mcmv":         "Imóveis populares e MCMV",
+    "medio-padrao": "Médio padrão",
+    "alto-padrao":  "Alto padrão e luxo",
+    "lancamentos":  "Lançamentos e incorporação",
+    "mista":        "Venda e locação (mista)"
+  },
+  corretores: {
+    "solo":    "Trabalha sozinho por enquanto",
+    "2-5":     "2 a 5 corretores",
+    "6-15":    "6 a 15 corretores",
+    "16-40":   "16 a 40 corretores",
+    "40-mais": "Mais de 40 corretores"
+  },
+  vgv: {
+    "ate-5mi":       "Até R$ 5 milhões",
+    "5-20mi":        "De R$ 5 a R$ 20 milhões",
+    "20-50mi":       "De R$ 20 a R$ 50 milhões",
+    "50mi-mais":     "Acima de R$ 50 milhões",
+    "nao-acompanha": "Ainda não acompanha esse número"
+  }
+};
+
+const label = (group, tag) => (LABELS[group] && LABELS[group][tag]) || tag || "-";
 
 async function moskit(path, method, key, body) {
   const res = await fetch(MOSKIT_API + path, {
-    method: method,
+    method,
     headers: { "Content-Type": "application/json", apikey: key },
     body: body ? JSON.stringify(body) : undefined
   });
@@ -35,73 +83,81 @@ export default async function handler(req, res) {
 
   const key = process.env.MOSKIT_API_KEY;
   if (!key) {
-    return res.status(503).json({ error: "Integração Moskit ainda não configurada (MOSKIT_API_KEY ausente)." });
+    return res.status(503).json({ error: "Integração Moskit não configurada (MOSKIT_API_KEY ausente)." });
   }
 
   const b = req.body || {};
-  const nome = String(b.nome || "").trim();
-  const telefone = String(b.telefone || "").trim();
+  const nome        = String(b.nome || "").trim();
+  const telefone    = String(b.telefone || "").trim();
   const imobiliaria = String(b.imobiliaria || "").trim();
-  const cargo = String(b.cargo || "").trim();
-  const respostas = b.respostas && typeof b.respostas === "object" ? b.respostas : {};
+  const cargo       = String(b.cargo || "").trim();
+  const r           = b.respostas && typeof b.respostas === "object" ? b.respostas : {};
 
   if (nome.length < 2 || telefone.replace(/\D/g, "").length < 10) {
     return res.status(400).json({ error: "Dados incompletos." });
   }
 
-  const cargoLabel = CARGO_LABELS[cargo] || cargo;
-  const resumo = [
-    "Lead do quiz Raio-X (landing Beam Broker)",
-    "Imobiliária: " + imobiliaria,
-    "Cargo: " + cargoLabel,
-    "Objetivo: " + (respostas.objetivo || "-"),
-    "Atuação: " + (respostas.atuacao || "-"),
-    "Corretores: " + (respostas.corretores || "-"),
-    "VGV/ano: " + (respostas.vgv || "-")
-  ].join("\n");
+  const who = { createdBy: { id: RESPONSIBLE_ID }, responsible: { id: RESPONSIBLE_ID } };
+  const resumo =
+    "Lead da " + ORIGEM_LABEL + "\n" +
+    "Imobiliária: " + imobiliaria + "\n" +
+    "Cargo: " + label("cargo", cargo) + "\n" +
+    "Objetivo: " + label("objetivo", r.objetivo) + "\n" +
+    "Atuação: " + label("atuacao", r.atuacao) + "\n" +
+    "Corretores: " + label("corretores", r.corretores) + "\n" +
+    "VGV/ano: " + label("vgv", r.vgv);
 
-  const responsible = process.env.MOSKIT_RESPONSIBLE
-    ? { id: Number(process.env.MOSKIT_RESPONSIBLE) }
-    : undefined;
+  /* 1) empresa (imobiliária) — não bloqueia o fluxo se falhar */
+  let companyId = null;
+  if (imobiliaria.length >= 2) {
+    const company = await moskit("/companies", "POST", key,
+      Object.assign({ name: imobiliaria }, who));
+    if (company.ok && company.data && company.data.id) companyId = company.data.id;
+    else console.error("Moskit /companies falhou", company.status, JSON.stringify(company.data));
+  }
 
-  // 1) cria o contato
-  const contactPayload = {
+  /* 2) contato */
+  const contactPayload = Object.assign({
     name: nome,
     phones: [{ number: telefone }],
-    notes: resumo
-  };
-  if (responsible) contactPayload.responsible = responsible;
+    notes: resumo,
+    entityCustomFields: [{ id: CF.cargoContato, textValue: label("cargo", cargo) }]
+  }, who);
+  if (companyId) contactPayload.employers = [{ company: { id: companyId } }];
 
   const contact = await moskit("/contacts", "POST", key, contactPayload);
-  if (!contact.ok) {
+  if (!contact.ok || !contact.data || !contact.data.id) {
     console.error("Moskit /contacts falhou", contact.status, JSON.stringify(contact.data));
     return res.status(502).json({ error: "Falha ao criar contato no Moskit.", detail: contact.data });
   }
+  const contactId = contact.data.id;
 
-  const contactId = contact.data && contact.data.id;
+  /* 3) negócio no Inbound > Novo Lead */
+  const dealPayload = Object.assign({
+    name: "Raio-X — " + (imobiliaria || nome),
+    stage: { id: STAGE_ID },
+    status: "OPEN",
+    contacts: [{ id: contactId }],
+    entityCustomFields: [
+      { id: CF.objetivo,   textValue: label("objetivo", r.objetivo) },
+      { id: CF.atuacao,    textValue: label("atuacao", r.atuacao) },
+      { id: CF.corretores, textValue: label("corretores", r.corretores) },
+      { id: CF.vgv,        textValue: label("vgv", r.vgv) },
+      { id: CF.origem,     textValue: ORIGEM_LABEL }
+    ]
+  }, who);
+  if (companyId) dealPayload.companies = [{ id: companyId }];
 
-  // 2) cria o negócio, se houver fase de funil configurada
-  let deal = null;
-  if (process.env.MOSKIT_STAGE_ID && contactId) {
-    const dealPayload = {
-      name: "Raio-X — " + (imobiliaria || nome),
-      stage: { id: Number(process.env.MOSKIT_STAGE_ID) },
-      contacts: [{ id: contactId }],
-      notes: resumo
-    };
-    if (responsible) dealPayload.responsible = responsible;
-
-    deal = await moskit("/deals", "POST", key, dealPayload);
-    if (!deal.ok) {
-      console.error("Moskit /deals falhou", deal.status, JSON.stringify(deal.data));
-      // contato já foi criado — reporta sucesso parcial
-      return res.status(200).json({ ok: true, contactId, dealError: deal.data });
-    }
+  const deal = await moskit("/deals", "POST", key, dealPayload);
+  if (!deal.ok) {
+    console.error("Moskit /deals falhou", deal.status, JSON.stringify(deal.data));
+    return res.status(200).json({ ok: true, contactId, companyId, dealError: deal.data });
   }
 
   return res.status(200).json({
     ok: true,
     contactId,
-    dealId: deal && deal.data ? deal.data.id : null
+    companyId,
+    dealId: deal.data ? deal.data.id : null
   });
 }
