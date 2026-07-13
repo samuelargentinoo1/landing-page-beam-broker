@@ -49,6 +49,9 @@ document.addEventListener('DOMContentLoaded', async function() {
 
   // Error sink persists across replaceWith since it's on window, not the DOM.
   window.addEventListener('error', function(e) {
+    // Falha de carregamento de recurso (script/img bloqueado por adblock etc.)
+    // não tem e.message — só loga no console, sem banner pro visitante.
+    if (!e || !e.message) { console.warn('[bundle] resource failed:', e && e.target && (e.target.src || e.target.href)); return; }
     var p = document.body || document.documentElement;
     var d = document.getElementById('__bundler_err') || p.appendChild(document.createElement('div'));
     d.id = '__bundler_err';
