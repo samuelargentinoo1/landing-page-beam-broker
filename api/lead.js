@@ -9,6 +9,8 @@
  *   MOSKIT_API_KEY
  */
 
+import { createHash } from "node:crypto";
+
 const MOSKIT_API = "https://api.moskitcrm.com/v2";
 
 /* ids validados na conta Moskit da Beam (jul/2026) */
@@ -76,6 +78,59 @@ async function moskit(path, method, key, body) {
   return { ok: res.ok, status: res.status, data };
 }
 
+/* ---------- Meta Conversions API ---------- */
+
+const sha256 = v => createHash("sha256").update(v).digest("hex");
+
+/* telefone BR -> E.164 com DDI 55, depois hash */
+function hashPhone(telefone) {
+  let d = telefone.replace(/\D/g, "");
+  if ((d.length === 10 || d.length === 11) && !d.startsWith("55")) d = "55" + d;
+  return sha256(d);
+}
+
+async function sendMetaLead(req, b, nome, telefone) {
+  const pixelId = process.env.META_PIXEL_ID;
+  const token   = process.env.META_CAPI_TOKEN;
+  if (!pixelId || !token) return { skipped: true };
+
+  const partes = nome.toLowerCase().trim().split(/\s+/);
+  const userData = {
+    ph: [hashPhone(telefone)],
+    fn: [sha256(partes[0])],
+    client_user_agent: req.headers["user-agent"] || ""
+  };
+  if (partes.length > 1) userData.ln = [sha256(partes[partes.length - 1])];
+  const ip = (req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  if (ip) userData.client_ip_address = ip;
+  if (b.fbp) userData.fbp = String(b.fbp);
+  if (b.fbc) userData.fbc = String(b.fbc);
+
+  const event = {
+    event_name: "Lead",
+    event_time: Math.floor(Date.now() / 1000),
+    action_source: "website",
+    event_source_url: String(b.sourceUrl || "https://landing-page-beam-broker.vercel.app/quiz.html"),
+    user_data: userData,
+    custom_data: { content_name: "Quiz Raio-X" }
+  };
+  if (b.eventId) event.event_id = String(b.eventId); // deduplica com o evento do navegador
+
+  try {
+    const r = await fetch("https://graph.facebook.com/v21.0/" + pixelId + "/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: [event], access_token: token })
+    });
+    const out = await r.json();
+    if (!r.ok) console.error("Meta CAPI falhou", r.status, JSON.stringify(out));
+    return out;
+  } catch (e) {
+    console.error("Meta CAPI erro", e);
+    return { error: String(e) };
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Use POST." });
@@ -96,6 +151,9 @@ export default async function handler(req, res) {
   if (nome.length < 2 || telefone.replace(/\D/g, "").length < 10) {
     return res.status(400).json({ error: "Dados incompletos." });
   }
+
+  /* Meta CAPI roda em paralelo com o Moskit — um não bloqueia o outro */
+  const metaPromise = sendMetaLead(req, b, nome, telefone);
 
   const who = { createdBy: { id: RESPONSIBLE_ID }, responsible: { id: RESPONSIBLE_ID } };
   const resumo =
@@ -149,15 +207,17 @@ export default async function handler(req, res) {
   if (companyId) dealPayload.companies = [{ id: companyId }];
 
   const deal = await moskit("/deals", "POST", key, dealPayload);
+  const meta = await metaPromise;
   if (!deal.ok) {
     console.error("Moskit /deals falhou", deal.status, JSON.stringify(deal.data));
-    return res.status(200).json({ ok: true, contactId, companyId, dealError: deal.data });
+    return res.status(200).json({ ok: true, contactId, companyId, dealError: deal.data, meta });
   }
 
   return res.status(200).json({
     ok: true,
     contactId,
     companyId,
-    dealId: deal.data ? deal.data.id : null
+    dealId: deal.data ? deal.data.id : null,
+    meta
   });
 }

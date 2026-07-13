@@ -7,6 +7,20 @@
 <meta name="description" content="Verificação de perfil em 30 segundos para liberar o Diagnóstico Comercial gratuito da sua imobiliária." />
 <meta name="theme-color" content="#0a0a0a" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230a0a0a'/%3E%3Cpath d='M18 12l20 11-20 11z' fill='%234ef35f'/%3E%3Cpath d='M18 30l20 11-20 11z' fill='%23a0fd98'/%3E%3C/svg%3E" />
+<!-- Meta Pixel -->
+<script>
+!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
+document,'script','https://connect.facebook.net/en_US/fbevents.js');
+fbq('init', '992583810053391');
+fbq('track', 'PageView');
+fbq('track', 'ViewContent', { content_name: 'Quiz Raio-X' });
+</script>
+<noscript><img height="1" width="1" style="display:none" alt=""
+src="https://www.facebook.com/tr?id=992583810053391&ev=PageView&noscript=1" /></noscript>
+<!-- /Meta Pixel -->
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -596,6 +610,7 @@ const QUIZ_CONFIG = {
     screenEl.className = "screen screen--final";
     screenEl.innerHTML = finalHTML();
     setProgress(100);
+    if (window.fbq) fbq("track", "Schedule", { content_name: "Quiz Raio-X" });
     const cta = document.getElementById("ctaBtn");
     if (cta) cta.addEventListener("click", function(){
       const target = document.querySelector(".cal-panel, .cal-placeholder");
@@ -617,6 +632,10 @@ const QUIZ_CONFIG = {
         btn.classList.add("is-picked");
         state.answers[step.id] = btn.dataset.tag;
         track("quiz_answer", { step_id: step.id, step_index: state.index + 1, answer: btn.dataset.tag });
+        if (state.index === 0 && !state.icSent) {
+          state.icSent = true;
+          if (window.fbq) fbq("track", "InitiateCheckout", { content_name: "Quiz Raio-X" });
+        }
 
         setTimeout(function(){
           if (state.index < total - 1) {
@@ -649,14 +668,34 @@ const QUIZ_CONFIG = {
     });
   }
 
+  function cookie(name){
+    const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
+    return m ? decodeURIComponent(m[1]) : "";
+  }
+
+  function fbcValue(){
+    const c = cookie("_fbc");
+    if (c) return c;
+    const fbclid = new URLSearchParams(location.search).get("fbclid");
+    return fbclid ? "fb.1." + Date.now() + "." + fbclid : "";
+  }
+
   function sendLeadToCRM(){
     try {
+      const eventId = "lead-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
+      if (window.fbq) {
+        fbq("track", "Lead", { content_name: "Quiz Raio-X" }, { eventID: eventId });
+      }
       const payload = JSON.stringify({
         nome:        state.lead.nome,
         telefone:    state.lead.telefone,
         imobiliaria: state.lead.imobiliaria,
         cargo:       state.lead.cargo,
-        respostas:   Object.assign({}, state.answers)
+        respostas:   Object.assign({}, state.answers),
+        eventId:     eventId,
+        fbp:         cookie("_fbp"),
+        fbc:         fbcValue(),
+        sourceUrl:   location.href
       });
       /* keepalive garante o envio mesmo se a pessoa fechar a aba em seguida */
       fetch("/api/lead", {
