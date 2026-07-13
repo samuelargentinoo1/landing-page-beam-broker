@@ -85,7 +85,9 @@ const sha256 = v => createHash("sha256").update(v).digest("hex");
 /* telefone BR -> E.164 com DDI 55, depois hash */
 function hashPhone(telefone) {
   let d = telefone.replace(/\D/g, "");
-  if ((d.length === 10 || d.length === 11) && !d.startsWith("55")) d = "55" + d;
+  /* 10-11 dígitos = DDD + número (sem DDI): prefixa 55 sempre —
+     inclusive DDD 55 (RS), que começa com 55 mas não tem DDI */
+  if (d.length === 10 || d.length === 11) d = "55" + d;
   return sha256(d);
 }
 
@@ -186,7 +188,8 @@ export default async function handler(req, res) {
   const contact = await moskit("/contacts", "POST", key, contactPayload);
   if (!contact.ok || !contact.data || !contact.data.id) {
     console.error("Moskit /contacts falhou", contact.status, JSON.stringify(contact.data));
-    return res.status(502).json({ error: "Falha ao criar contato no Moskit.", detail: contact.data });
+    const meta = await metaPromise; // garante o envio ao Meta mesmo se o CRM falhar
+    return res.status(502).json({ error: "Falha ao criar contato no Moskit.", detail: contact.data, meta });
   }
   const contactId = contact.data.id;
 
