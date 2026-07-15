@@ -133,6 +133,40 @@ async function sendMetaLead(req, b, nome, telefone) {
   }
 }
 
+/* ---------- Aviso no grupo do WhatsApp (uazapi) ---------- */
+
+async function notifyWhatsApp(lead) {
+  const url   = process.env.UAZAPI_URL;
+  const token = process.env.UAZAPI_TOKEN;
+  const group = process.env.UAZAPI_GROUP_ID;
+  if (!url || !token || !group) return { skipped: true };
+
+  const text =
+    "🔥 *Novo lead do Raio-X!*\n\n" +
+    "👤 " + lead.nome + " — " + lead.cargo + "\n" +
+    "🏢 " + (lead.imobiliaria || "-") + "\n" +
+    "📱 " + lead.telefone + "\n\n" +
+    "🎯 Objetivo: " + lead.objetivo + "\n" +
+    "🏘 Atuação: " + lead.atuacao + "\n" +
+    "👥 Corretores: " + lead.corretores + "\n" +
+    "💰 VGV/ano: " + lead.vgv + "\n\n" +
+    "➡️ Já está no Moskit: funil Inbound → Novo Lead (Ana Julia)";
+
+  try {
+    const r = await fetch(url + "/send/text", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", token: token },
+      body: JSON.stringify({ number: group, text: text })
+    });
+    const out = await r.json().catch(() => null);
+    if (!r.ok) console.error("uazapi falhou", r.status, JSON.stringify(out));
+    return { ok: r.ok };
+  } catch (e) {
+    console.error("uazapi erro", e);
+    return { error: String(e) };
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Use POST." });
@@ -210,10 +244,20 @@ export default async function handler(req, res) {
   if (companyId) dealPayload.companies = [{ id: companyId }];
 
   const deal = await moskit("/deals", "POST", key, dealPayload);
+
+  const zap = await notifyWhatsApp({
+    nome, telefone, imobiliaria,
+    cargo:      label("cargo", cargo),
+    objetivo:   label("objetivo", r.objetivo),
+    atuacao:    label("atuacao", r.atuacao),
+    corretores: label("corretores", r.corretores),
+    vgv:        label("vgv", r.vgv)
+  });
+
   const meta = await metaPromise;
   if (!deal.ok) {
     console.error("Moskit /deals falhou", deal.status, JSON.stringify(deal.data));
-    return res.status(200).json({ ok: true, contactId, companyId, dealError: deal.data, meta });
+    return res.status(200).json({ ok: true, contactId, companyId, dealError: deal.data, meta, zap });
   }
 
   return res.status(200).json({
@@ -221,6 +265,7 @@ export default async function handler(req, res) {
     contactId,
     companyId,
     dealId: deal.data ? deal.data.id : null,
-    meta
+    meta,
+    zap
   });
 }
