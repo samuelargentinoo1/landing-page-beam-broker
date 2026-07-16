@@ -201,6 +201,7 @@ async function notifyWhatsApp(lead) {
     "👥 Corretores: " + lead.corretores + "\n" +
     "💰 VGV/ano: " + lead.vgv + "\n" +
     (lead.campanha ? "\n📣 Campanha: " + lead.campanha : "") +
+    (lead.conjunto ? "\n🎯 Conjunto: " + lead.conjunto : "") +
     (lead.anuncio  ? "\n🎬 Anúncio: "  + lead.anuncio  : "") +
     "\n\n➡️ Já está no Moskit: funil Inbound → Novo Lead (Ana Julia)";
 
@@ -314,6 +315,7 @@ export default async function handler(req, res) {
     corretores: label("corretores", r.corretores),
     vgv:        label("vgv", r.vgv),
     campanha:   trk.campanha,
+    conjunto:   trk.conjunto,
     anuncio:    trk.anuncio
   });
 
