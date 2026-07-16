@@ -668,6 +668,26 @@ const QUIZ_CONFIG = {
     });
   }
 
+  /* ---------- rastreamento de campanha (Meta Ads) ---------- */
+  const TRACK_KEYS = ["utm_source","utm_medium","utm_campaign","utm_term","utm_content","campaign_id","adset_id","ad_id","fbclid"];
+
+  function captureTracking(){
+    const q = new URLSearchParams(location.search);
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem("beam_tracking") || "{}"); } catch (e) {}
+    const fresh = {};
+    let fromUrl = false;
+    TRACK_KEYS.forEach(function(k){
+      const v = q.get(k);
+      if (v) { fresh[k] = v; fromUrl = true; }
+    });
+    const merged = fromUrl ? Object.assign({}, saved, fresh) : saved;
+    if (fromUrl) { try { localStorage.setItem("beam_tracking", JSON.stringify(merged)); } catch (e) {} }
+    return merged;
+  }
+
+  const tracking = captureTracking();
+
   function cookie(name){
     const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
     return m ? decodeURIComponent(m[1]) : "";
@@ -692,6 +712,7 @@ const QUIZ_CONFIG = {
         imobiliaria: state.lead.imobiliaria,
         cargo:       state.lead.cargo,
         respostas:   Object.assign({}, state.answers),
+        tracking:    tracking,
         eventId:     eventId,
         fbp:         cookie("_fbp"),
         fbc:         fbcValue(),

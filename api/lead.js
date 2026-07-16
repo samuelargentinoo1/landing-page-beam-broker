@@ -24,8 +24,28 @@ const CF = {
   atuacao:      "CF_2ojMxLiPCoRbgMOE", // negócio: Atuação da imobiliária
   corretores:   "CF_K7Rm8QiRCVzXnDbN", // negócio: Nº de corretores
   vgv:          "CF_gvGm3Bi0CGnrkM45", // negócio: VGV anual
-  origem:       "CF_3LvDvEi4CLR43m6a"  // negócio: Origem do lead
+  origem:       "CF_3LvDvEi4CLR43m6a", // negócio: Origem do lead
+  campanha:     "CF_G5rMe5iNCXeevMyj", // negócio: Campanha (Meta Ads)
+  conjunto:     "CF_eZYm9BiyCeLL3D47", // negócio: Conjunto de anúncios (Meta Ads)
+  anuncio:      "CF_G21qV7ilCnGGEMAX"  // negócio: Anúncio (Meta Ads)
 };
+
+/* monta os valores de rastreamento: "Nome (id)" quando os dois existem */
+function trackingValues(t) {
+  t = t && typeof t === "object" ? t : {};
+  const join = (name, id) => {
+    const n = String(name || "").trim();
+    const i = String(id || "").trim();
+    if (n && i) return n + " (" + i + ")";
+    return n || i || "";
+  };
+  return {
+    campanha: join(t.utm_campaign, t.campaign_id),
+    conjunto: join(t.utm_term, t.adset_id),
+    anuncio:  join(t.utm_content, t.ad_id),
+    origem:   [t.utm_source, t.utm_medium].filter(Boolean).join(" / ")
+  };
+}
 
 /* tags do quiz -> rótulos legíveis no CRM */
 const LABELS = {
@@ -149,8 +169,10 @@ async function notifyWhatsApp(lead) {
     "🎯 Objetivo: " + lead.objetivo + "\n" +
     "🏘 Atuação: " + lead.atuacao + "\n" +
     "👥 Corretores: " + lead.corretores + "\n" +
-    "💰 VGV/ano: " + lead.vgv + "\n\n" +
-    "➡️ Já está no Moskit: funil Inbound → Novo Lead (Ana Julia)";
+    "💰 VGV/ano: " + lead.vgv + "\n" +
+    (lead.campanha ? "\n📣 Campanha: " + lead.campanha : "") +
+    (lead.anuncio  ? "\n🎬 Anúncio: "  + lead.anuncio  : "") +
+    "\n\n➡️ Já está no Moskit: funil Inbound → Novo Lead (Ana Julia)";
 
   try {
     const r = await fetch(url + "/send/text", {
@@ -192,6 +214,7 @@ export default async function handler(req, res) {
   const metaPromise = sendMetaLead(req, b, nome, telefone);
 
   const who = { createdBy: { id: RESPONSIBLE_ID }, responsible: { id: RESPONSIBLE_ID } };
+  const trk = trackingValues(b.tracking);
   const resumo =
     "Lead da " + ORIGEM_LABEL + "\n" +
     "Imobiliária: " + imobiliaria + "\n" +
@@ -199,7 +222,11 @@ export default async function handler(req, res) {
     "Objetivo: " + label("objetivo", r.objetivo) + "\n" +
     "Atuação: " + label("atuacao", r.atuacao) + "\n" +
     "Corretores: " + label("corretores", r.corretores) + "\n" +
-    "VGV/ano: " + label("vgv", r.vgv);
+    "VGV/ano: " + label("vgv", r.vgv) +
+    (trk.campanha ? "\nCampanha: " + trk.campanha : "") +
+    (trk.conjunto ? "\nConjunto: " + trk.conjunto : "") +
+    (trk.anuncio  ? "\nAnúncio: "  + trk.anuncio  : "") +
+    (trk.origem   ? "\nOrigem do tráfego: " + trk.origem : "");
 
   /* 1) empresa (imobiliária) — não bloqueia o fluxo se falhar */
   let companyId = null;
@@ -239,7 +266,11 @@ export default async function handler(req, res) {
       { id: CF.corretores, textValue: label("corretores", r.corretores) },
       { id: CF.vgv,        textValue: label("vgv", r.vgv) },
       { id: CF.origem,     textValue: ORIGEM_LABEL }
-    ]
+    ].concat(
+      trk.campanha ? [{ id: CF.campanha, textValue: trk.campanha }] : [],
+      trk.conjunto ? [{ id: CF.conjunto, textValue: trk.conjunto }] : [],
+      trk.anuncio  ? [{ id: CF.anuncio,  textValue: trk.anuncio }]  : []
+    )
   }, who);
   if (companyId) dealPayload.companies = [{ id: companyId }];
 
@@ -251,7 +282,9 @@ export default async function handler(req, res) {
     objetivo:   label("objetivo", r.objetivo),
     atuacao:    label("atuacao", r.atuacao),
     corretores: label("corretores", r.corretores),
-    vgv:        label("vgv", r.vgv)
+    vgv:        label("vgv", r.vgv),
+    campanha:   trk.campanha,
+    anuncio:    trk.anuncio
   });
 
   const meta = await metaPromise;
