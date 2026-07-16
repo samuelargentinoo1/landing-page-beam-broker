@@ -30,8 +30,33 @@ const CF = {
   anuncio:      "CF_G21qV7ilCnGGEMAX"  // negócio: Anúncio (Meta Ads)
 };
 
-/* monta os valores de rastreamento: "Nome (id)" quando os dois existem */
-function trackingValues(t) {
+/* cache de nomes (sobrevive entre execuções enquanto a função está "quente") */
+const adNameCache = new Map();
+
+/* busca o nome real de campanha/conjunto/anúncio pelo id na API do Meta */
+async function adObjectName(id) {
+  id = String(id || "").trim();
+  if (!id) return "";
+  if (adNameCache.has(id)) return adNameCache.get(id);
+  const token = process.env.META_ADS_TOKEN;
+  if (!token) return "";
+  try {
+    const r = await fetch("https://graph.facebook.com/v21.0/" + id +
+      "?fields=name&access_token=" + encodeURIComponent(token));
+    const d = await r.json().catch(() => null);
+    const name = r.ok && d && d.name ? d.name : "";
+    if (name) adNameCache.set(id, name);
+    else console.error("Meta ads_read não resolveu", id, r.status, JSON.stringify(d));
+    return name;
+  } catch (e) {
+    console.error("Meta ads_read erro", e);
+    return "";
+  }
+}
+
+/* monta os valores de rastreamento: "Nome (id)" — se o nome não veio
+   na URL (macro não preenchido), resolve pelo id via API do Meta */
+async function trackingValues(t) {
   t = t && typeof t === "object" ? t : {};
   const join = (name, id) => {
     const n = String(name || "").trim();
@@ -39,10 +64,15 @@ function trackingValues(t) {
     if (n && i) return n + " (" + i + ")";
     return n || i || "";
   };
+  const [nCamp, nConj, nAnun] = await Promise.all([
+    t.utm_campaign ? Promise.resolve(t.utm_campaign) : adObjectName(t.campaign_id),
+    t.utm_term     ? Promise.resolve(t.utm_term)     : adObjectName(t.adset_id),
+    t.utm_content  ? Promise.resolve(t.utm_content)  : adObjectName(t.ad_id)
+  ]);
   return {
-    campanha: join(t.utm_campaign, t.campaign_id),
-    conjunto: join(t.utm_term, t.adset_id),
-    anuncio:  join(t.utm_content, t.ad_id),
+    campanha: join(nCamp, t.campaign_id),
+    conjunto: join(nConj, t.adset_id),
+    anuncio:  join(nAnun, t.ad_id),
     origem:   [t.utm_source, t.utm_medium].filter(Boolean).join(" / ")
   };
 }
@@ -214,7 +244,7 @@ export default async function handler(req, res) {
   const metaPromise = sendMetaLead(req, b, nome, telefone);
 
   const who = { createdBy: { id: RESPONSIBLE_ID }, responsible: { id: RESPONSIBLE_ID } };
-  const trk = trackingValues(b.tracking);
+  const trk = await trackingValues(b.tracking);
   const resumo =
     "Lead da " + ORIGEM_LABEL + "\n" +
     "Imobiliária: " + imobiliaria + "\n" +
